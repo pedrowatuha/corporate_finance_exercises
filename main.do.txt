@@ -1,0 +1,55 @@
+clear
+eststo clear
+use "D:\Dados\Estudo\Economia\Doutorado\Advanced Corporate Finance\MergedDatabaseAssignment1.dta"
+keep if strlen(strtrim(ExchangeTicker)) >= 2
+encode CompanyName, generate(id)
+reshape long TotalCurLiabilities TotalLiabilities TotalAssets NetIncome DeprecAmort NetPropPlantEquip BookValueShare DefTaxAssetsCurr DefTaxAssetsLT MarketCap TotalCurrDebt LongTermDebt IncomeBeforeEI EBIT , i(CompanyName) j(year)
+destring TotalCurLiabilities TotalLiabilities TotalAssets NetIncome DeprecAmort NetPropPlantEquip BookValueShare DefTaxAssetsCurr DefTaxAssetsLT MarketCap TotalCurrDebt LongTermDebt EBIT,replace force
+
+drop if EBIT==.
+drop if DefTaxAssetsCurr==.
+drop if DefTaxAssetsLT ==.
+drop if TotalAssets == .  
+drop if MarketCap ==.
+drop if DeprecAmort==.
+drop if NetIncome==.
+xtset id year
+gen Leverage = (TotalCurrDebt+LongTermDebt)/TotalAssets
+gen CashFlow = (EBIT+DeprecAmort)/L.NetPropPlantEquip
+gen Tangibility = NetPropPlantEquip/TotalAssets
+gen Size = log(TotalAssets)
+gen Q = (TotalAssets+MarketCap-DefTaxAssetsCurr-DefTaxAssetsLT-BookValueShare)/ TotalAssets
+drop if (CashFlow ==.| Tangibility ==. | Leverage ==.| Size==. |Q ==.)
+
+
+summarize Leverage CashFlow Tangibility Size Q
+correlate Leverage CashFlow Tangibility Size Q
+regress Leverage CashFlow Tangibility Size Q
+eststo Simple_Model
+tab year, gen(time)
+tab SICCodes, gen(code)
+#Erro no xtreg: Omitindo as variáveis code
+xtreg Leverage CashFlow Tangibility Size Q code* time*, fe
+eststo Fixed_Effect
+
+
+winsor2 Leverage CashFlow Tangibility Size Q, cuts (5 95) suffix(_new)
+regress Leverage_new CashFlow_new Tangibility_new Size_new Q_new
+eststo Winsorized
+
+vl create variables = (Leverage Tangibility Size CashFlow Q)
+foreach var in $variables {
+	quietly sum `var',de
+	gen `var'_trim = `var' if `var' > r(p5) & `var'<r(p95)
+}
+regress Leverage_trim CashFlow_trim Tangibility_trim Size_trim Q_trim
+eststo Trimmed
+
+xtset id year
+regress Leverage L.CashFlow L.Tangibility L.Size L.Q
+eststo Lagged
+bysort id (year): gen InitialLeverage = Leverage if _n == 1
+bysort id: replace InitialLeverage = InitialLeverage[_n-1] if missing(InitialLeverage)
+regress Leverage CashFlow Tangibility Size Q InitialLeverage
+eststo Initial_Leverage
+esttab using "regression_results.tex", replace title("Regression Results") drop(time* code*) rename(Leverage_trim Leverage CashFlow_trim CashFlow Tangibility_trim Tangibility Size_trim Size Q_trim Q Size_new Size L.Size Size L.CashFlow CashFlow CashFlow_new CashFlow L.Q Q Q_new Q L.Tangibility Tangibility Tangibility_new Tangibility) mgroups("Standart" "Fixed Effects" "Winsorized" "Trimmed" "Lagged" "Initial Leverage",pattern(1 1 1 1 1 1)) se

@@ -1,0 +1,146 @@
+clear
+eststo clear
+set seed 1000
+use "C:\Users\pedro\Downloads\MergedDatabaseAssignment2.dta"
+xtset id year
+gen leverage = (TotalCurrentDebt+LongTermDebt)/TotalAssets
+gen lagppent = L.NetPropertyPlantEquipment
+gen cashflow = (IncomeBefore+DepreciationAmort)/lagppent
+gen tangibility = NetPropertyPlantEquipment/TotalAssets
+gen size = log(TotalAssets)
+gen Q = (TotalAssets+MarketCapitalization-DeferredTaxAssetsCurr-BookValueShare)/ TotalAssets
+gen investment = (CapitalExpenditure-SaleofProperty)/lagppent
+gen Z = [3.3*PretaxIncome + Revenue +1.4*RetainedEarnings +1.2*(TotalCurrentAssets - TotalCurrentLiabilities)]/TotalAssets
+
+
+
+sum leverage cashflow tangibility size Q investment Z
+estpost tabstat leverage cashflow tangibility size Q investment Z, c(stat) stat(mean sd min max n)
+esttab using summary1.tex, replace cells("mean sd min max count")
+eststo clear
+
+
+graph box leverage cashflow tangibility size Q investment Z
+winsor2 Q, cuts (1 99)
+winsor2 Z, cuts (1 99)
+winsor2 cashflow, cuts (5 95)
+winsor2 investment, cuts (5 95)
+
+sum leverage cashflow_w tangibility size Q_w investment_w Z_w
+estpost tabstat leverage cashflow_w tangibility size Q_w investment_w Z_w, c(stat) stat(mean sd min max n)
+esttab using summary2.tex, replace cells("mean sd min max count")
+eststo clear
+
+set matsize 11000
+reg investment_w cashflow_w Q_w
+eststo OLS
+reg investment_w cashflow_w Q_w i.id i.year
+eststo Fixed_Effects
+reg investment_w cashflow_w Q_w i.id i.year, vce (cluster id)
+eststo Clustered_FE
+esttab using "regression_nomatch1.tex", replace title("Regression Results") keep(cashflow_w Q_w) mgroups("Standart" "Fixed Effects" "Clustered FE",pattern(1 1 1)) se
+
+eststo clear
+
+gen random = runiform()
+sort random
+generate insample =_n <= 1000
+rename insample treated
+
+sdtest investment_w, by(treat)
+ttest investment_w, by(treat) unequal
+sdtest Z_w, by(treat)
+ttest Z_w, by(treat) unequal
+sdtest tangibility , by(treat)
+ttest tangibility , by(treat)
+sdtest leverage , by(treat)
+ttest leverage , by(treat) unequal
+sdtest size, by (treat)
+ttest size, by (treat)
+sdtest cashflow_w, by (treat)
+ttest cashflow_w, by (treat)
+sdtest Q_w, by(treat)
+ttest Q_w, by(treat) unequal
+
+encode SICCodes, generate(code)
+cd "C:\Users\pedro\Downloads"
+nnmatch investment treated size leverage tangibility Z, exact(code) tc(att) m(4) keep(matchdata3) replace
+save "C:\Users\pedro\Downloads\PrimaryDatabase2.dta",replace
+save "C:\Users\pedro\Downloads\PrimaryDatabase3.dta",replace
+
+
+use "C:\Users\pedro\Downloads\matchdata3.dta"
+drop investment size leverage tangibility Z code
+rename investment_0 investment_w0
+rename investment_1 investment_w1
+rename size_0m size0
+rename size_1m size1
+rename leverage_0m leverage0
+rename leverage_1m leverage1
+rename tangibility_0m tangibility0
+rename tangibility_1m tangibility1
+rename Z_0m Z_w0
+rename Z_1m Z_w1
+rename code_0e code0
+rename code_1e code1
+
+
+
+
+reshape long investment_w tangibility size Z_w code leverage, i(id index) j(treatment)
+sdtest investment_w, by(treatment)
+ttest investment_w, by(treatment)
+sdtest leverage, by(treatment)
+ttest leverage, by(treatment) unequal
+sdtest tangibility, by(treatment)
+ttest tangibility, by(treatment)
+sdtest Z_w, by(treatment)
+ttest Z_w, by(treatment) unequal
+sdtest size, by(treatment)
+ttest size, by(treatment)
+
+joinby Z_w leverage size tangibility investment_w code using "C:\Users\pedro\Downloads\PrimaryDatabase3.dta", unmatched(master)
+
+gen seq=_n
+keep if (treatment==0 | treatment==1 & mod(seq,8)==0)
+
+egen tangibility_mean = mean(tangibility), by(id treatment)
+egen investment_w_mean = mean(investment_w), by(id treatment)
+egen size_mean = mean(size), by(id treatment)
+egen leverage_mean = mean(leverage), by(id treatment)
+egen Z_w_mean = mean(Z_w), by(id treatment)
+
+sort treatment id
+gen obs=_n if treatment==0
+keep if (mod(obs - 1, 4) == 0 | obs==.)
+sort id
+
+
+reg investment_w cashflow_w Q_w
+eststo OLS
+reg investment_w cashflow_w Q_w i.id i.year
+eststo Fixed_Effects
+reg investment_w cashflow_w Q_w i.id i.year, vce (cluster id)
+eststo Clustered_FE
+
+esttab using "regression_match2.tex", replace title("Regression Results") keep(cashflow_w Q_w) mgroups("Standart" "Fixed Effects" "Clustered FE",pattern(1 1 1)) se
+
+eststo clear
+
+keep year id treatment cashflow_w Q_w investment_w
+reshape wide investment_w year Q_w cashflow_w, i(id) j(treatment)
+swapval cashflow_w0 cashflow_w1
+reshape long investment_w year Q_w cashflow_w, i(id) j(treatment)
+
+reg investment_w cashflow_w Q_w
+eststo OLS
+reg investment_w cashflow_w Q_w i.id i.year, vce(cl id)
+eststo Clustered_FE
+
+esttab using "regression_matched2.tex", replace title("Regression Results") keep(cashflow_w Q_w) mgroups("Standart" "Fixed Effects" "Clustered FE",pattern(1 1 1)) se
+save "C:\Users\pedro\Downloads\SecundaryDatabase3.dta",replace
+
+
+
+
+
